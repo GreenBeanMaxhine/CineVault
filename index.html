@@ -6750,34 +6750,77 @@ function dehydrateMovie(m){
       return (file.mimeType&&file.mimeType.indexOf("video/")===0)||/\.(mp4|m4v|mkv|avi|mov|wmv|webm|mpeg|mpg|3gp)$/i.test(file.name||"");
     }
     async function scanTvDriveFolder(rootId){
-      setTvImportStatus("Scanning Shows and Sitcoms… This may take a little while for a large library.");
-      document.getElementById("tvImportPreview").style.display="none";
-      const root=await listTvDriveChildren(rootId);
-      const folders=root.filter((f)=>f.mimeType==="application/vnd.google-apps.folder");
-      if(!folders.length)throw new Error("No show folders were found directly inside this folder. Expected one folder per show.");
-      const rows=[],visited=new Set();
-      async function walk(folderId,showName,season,depth){
-        if(depth>6||visited.has(folderId))return;visited.add(folderId);
+      const preview=document.getElementById("tvImportPreview");
+      preview.style.display="none";
+      let foldersScanned=0;
+      const rows=[];
+      const folderMime="application/vnd.google-apps.folder";
+      const scanFolder=async(folderId,label)=>{
         const children=await listTvDriveChildren(folderId);
-        for(const child of children){
-          if(child.mimeType==="application/vnd.google-apps.folder"){
-            const foundSeason=parseTvSeasonNumber(child.name);
-            await walk(child.id,showName,foundSeason===null?season:foundSeason,depth+1);
-          }else if(isTvVideoFile(child)){
-            const parsed=parseTvEpisodeNumber(child.name,season);
-            rows.push({fileId:child.id,fileName:child.name,resourceKey:child.resourceKey||"",webViewLink:child.webViewLink||"",showName,seasonNumber:(season!==null&&season!==undefined)?Number(season):(parsed.season||1),episodeNumber:parsed.episode,episodeTitle:parsed.title,duplicate:false});
-          }
+        foldersScanned++;
+        setTvImportStatus("Scanning… "+foldersScanned+" folders checked. Currently: "+label);
+        return children;
+      };
+      const mapLimit=async(items,limit,worker)=>{
+        const results=new Array(items.length);let next=0;
+        const runners=Array.from({length:Math.min(limit,items.length)},async()=>{
+          while(true){const index=next++;if(index>=items.length)return;results[index]=await worker(items[index],index);}
+        });
+        await Promise.all(runners);return results;
+      };
+      const addVideo=(file,showName,season)=>{
+        if(!isTvVideoFile(file))return;
+        const parsed=parseTvEpisodeNumber(file.name,season);
+        rows.push({fileId:file.id,fileName:file.name,resourceKey:file.resourceKey||"",webViewLink:file.webViewLink||"",showName,seasonNumber:(season!==null&&season!==undefined)?Number(season):(parsed.season||1),episodeNumber:parsed.episode,episodeTitle:parsed.title,duplicate:false});
+      };
+
+      setTvImportStatus("Scanning streaming-service folders…");
+      const rootChildren=await scanFolder(rootId,"Shows and Sitcoms");
+      const rootFolders=rootChildren.filter(f=>f.mimeType===folderMime);
+      if(!rootFolders.length)throw new Error("No streaming-service folders were found. Expected Shows and Sitcoms → Hulu / Apple TV / etc. → Show → Season.");
+
+      const serviceContents=await mapLimit(rootFolders,6,async service=>{
+        const children=await scanFolder(service.id,service.name);
+        return {service,children};
+      });
+
+      const showEntries=[];
+      for(const entry of serviceContents){
+        for(const child of entry.children){
+          if(child.mimeType===folderMime)showEntries.push({show:child,serviceName:entry.service.name});
+          else addVideo(child,entry.service.name,1);
         }
       }
-      for(const folder of folders)await walk(folder.id,folder.name,null,0);
-      if(!rows.length)throw new Error("No video files were found inside the show folders.");
-      const existing=new Set();
-      library.forEach((item)=>{
-        if(item.driveUrl){const info=extractDriveInfo(item.driveUrl);if(info.kind==="file")existing.add(info.id);}
-        if(item.tvSeries&&Array.isArray(item.episodes))item.episodes.forEach((ep)=>{if(ep.driveFileId)existing.add(ep.driveFileId);});
+      if(!showEntries.length&&!rows.length)throw new Error("No show folders were found inside the streaming-service folders.");
+
+      const showContents=await mapLimit(showEntries,6,async entry=>{
+        const children=await scanFolder(entry.show.id,entry.show.name);
+        return {...entry,children};
       });
-      rows.forEach((row)=>{row.duplicate=existing.has(row.fileId);});
-      tvImportPreviewRows=rows.filter((row)=>!row.duplicate).sort((a,b)=>a.showName.localeCompare(b.showName)||a.seasonNumber-b.seasonNumber||((a.episodeNumber||99999)-(b.episodeNumber||99999))||a.fileName.localeCompare(b.fileName,undefined,{numeric:true}));
+
+      const seasonEntries=[];
+      for(const entry of showContents){
+        const seasonFolders=entry.children.filter(child=>child.mimeType===folderMime);
+        for(const file of entry.children)if(file.mimeType!==folderMime)addVideo(file,entry.show.name,1);
+        for(const seasonFolder of seasonFolders){
+          const parsedSeason=parseTvSeasonNumber(seasonFolder.name);
+          seasonEntries.push({folder:seasonFolder,showName:entry.show.name,seasonNumber:parsedSeason===null?1:parsedSeason});
+        }
+      }
+
+      await mapLimit(seasonEntries,6,async entry=>{
+        const children=await scanFolder(entry.folder.id,entry.showName+" — "+entry.folder.name);
+        for(const file of children)if(file.mimeType!==folderMime)addVideo(file,entry.showName,entry.seasonNumber);
+      });
+
+      if(!rows.length)throw new Error("No video files were found. Expected episode files inside each show's season folders.");
+      const existing=new Set();
+      library.forEach(item=>{
+        if(item.driveUrl){const info=extractDriveInfo(item.driveUrl);if(info.kind==="file")existing.add(info.id);}
+        if(item.tvSeries&&Array.isArray(item.episodes))item.episodes.forEach(ep=>{if(ep.driveFileId)existing.add(ep.driveFileId);});
+      });
+      rows.forEach(row=>{row.duplicate=existing.has(row.fileId);});
+      tvImportPreviewRows=rows.filter(row=>!row.duplicate).sort((a,b)=>a.showName.localeCompare(b.showName)||a.seasonNumber-b.seasonNumber||((a.episodeNumber||99999)-(b.episodeNumber||99999))||a.fileName.localeCompare(b.fileName,undefined,{numeric:true}));
       renderTvImportPreview(rows.length);
     }
     function renderTvImportPreview(totalScanned){
