@@ -6744,7 +6744,14 @@ function dehydrateMovie(m){
       return t.replace(/[._-]+/g," ").replace(/[()[\]]/g," ").replace(/\s+/g," ").replace(/^[-–—\s]+|[-–—\s]+$/g,"").trim();
     }
     function parseTvEpisodeNumber(name,fallbackSeason){
-      const s=String(name||"");let m=s.match(/\bS\s*0*(\d{1,2})\s*[-._ ]?\s*E\s*0*(\d{1,3})\b/i);
+      const s=String(name||"");
+      // Only import files whose names contain an explicit S-number or E-number marker.
+      // This skips generic filenames such as "01.mp4", "Episode 1.mp4" only if no E-number is present,
+      // and other videos that would otherwise need manual season/episode assignment.
+      if(!/\b(?:S\s*0*\d{1,2}|E\s*0*\d{1,3})\b/i.test(s)){
+        return{season:fallbackSeason===null||fallbackSeason===undefined?1:Number(fallbackSeason),episode:null,title:""};
+      }
+      let m=s.match(/\bS\s*0*(\d{1,2})\s*[-._ ]?\s*E\s*0*(\d{1,3})\b/i);
       if(m)return{season:Number(m[1]),episode:Number(m[2]),title:tvCleanEpisodeTitle(s,m[0])};
       m=s.match(/\b(\d{1,2})\s*x\s*(\d{1,3})\b/i);
       if(m)return{season:Number(m[1]),episode:Number(m[2]),title:tvCleanEpisodeTitle(s,m[0])};
