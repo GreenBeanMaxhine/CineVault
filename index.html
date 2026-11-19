@@ -3097,6 +3097,13 @@ input:focus-visible,
 .tv-import-status{margin:12px 0;padding:11px 13px;border:1px solid var(--separator);border-radius:12px;color:var(--text-secondary);font-size:12px;line-height:1.45;background:var(--surface-1)}
 .tv-import-status.error{color:#ff8b8b;border-color:rgba(255,90,90,.35)}
 .tv-import-status.success{color:#65d98b;border-color:rgba(48,209,88,.3)}
+.tv-import-progress{display:none;margin:10px 0 14px;padding:12px 13px;border:1px solid var(--separator);border-radius:12px;background:var(--surface-1)}
+.tv-import-progress.active{display:block}
+.tv-import-progress-top{display:flex;justify-content:space-between;gap:12px;align-items:center;font-size:12px;margin-bottom:8px}
+.tv-import-progress-top strong{font-size:15px;font-variant-numeric:tabular-nums;color:var(--text-primary)}
+.tv-import-progress-track{height:9px;border-radius:99px;overflow:hidden;background:var(--surface-2)}
+.tv-import-progress-fill{height:100%;width:0%;border-radius:99px;background:linear-gradient(90deg,#0a84ff,#5e5ce6);transition:width .22s ease}
+.tv-import-progress-detail{margin-top:7px;font-size:11px;color:var(--text-tertiary);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .tv-import-preview{margin-top:16px}
 .tv-import-preview-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:10px}
 .tv-import-preview-head strong{font-size:14px}
@@ -3360,6 +3367,7 @@ input:focus-visible,
       </div>
       <div class="tv-import-connect"><div class="field-group" style="margin:0"><label for="tvImportFolderId">Google Drive folder ID</label><input id="tvImportFolderId" type="text" value="1358RplExyikFR9d_zSKhXPrfBDx0AHo9" /></div><button class="btn btn-ios-blue" id="tvImportConnectBtn" onclick="connectAndScanTvShows()">Connect &amp; Scan</button></div>
       <div class="tv-import-status" id="tvImportStatus">Not connected. Videos remain in Google Drive; CineVault imports episode metadata and links only.</div>
+      <div class="tv-import-progress" id="tvImportProgress" aria-live="polite"><div class="tv-import-progress-top"><span id="tvImportProgressLabel">Preparing scan…</span><strong id="tvImportProgressPercent">0%</strong></div><div class="tv-import-progress-track" role="progressbar" aria-label="Google Drive scan progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="tvImportProgressBar"><div class="tv-import-progress-fill" id="tvImportProgressFill"></div></div><div class="tv-import-progress-detail"><span id="tvImportProgressCount">0 of 0 folders checked</span><span id="tvImportProgressEta">Estimating time…</span></div></div>
       <div class="tv-import-preview" id="tvImportPreview" style="display:none"></div>
     </div>
   </div>
@@ -6749,15 +6757,40 @@ function dehydrateMovie(m){
     function isTvVideoFile(file){
       return (file.mimeType&&file.mimeType.indexOf("video/")===0)||/\.(mp4|m4v|mkv|avi|mov|wmv|webm|mpeg|mpg|3gp)$/i.test(file.name||"");
     }
+    function updateTvScanProgress(completed,total,startedAt){
+      const wrap=document.getElementById("tvImportProgress");
+      if(!wrap)return;
+      wrap.classList.add("active");
+      const safeTotal=Math.max(1,total);
+      const percent=Math.min(100,Math.floor((completed/safeTotal)*100));
+      const elapsed=(Date.now()-startedAt)/1000;
+      const average=completed>0?elapsed/completed:0;
+      const remaining=Math.max(0,total-completed);
+      const etaSeconds=average*remaining;
+      const eta=completed===0?"Estimating time…":(etaSeconds<60?Math.max(1,Math.ceil(etaSeconds))+" sec left":Math.ceil(etaSeconds/60)+" min left");
+      document.getElementById("tvImportProgressLabel").textContent="Scanning your Drive library";
+      document.getElementById("tvImportProgressPercent").textContent=percent+"%";
+      document.getElementById("tvImportProgressFill").style.width=percent+"%";
+      const bar=document.getElementById("tvImportProgressBar");
+      bar.setAttribute("aria-valuenow",String(percent));
+      document.getElementById("tvImportProgressCount").textContent=completed+" of "+total+" discovered folders checked";
+      document.getElementById("tvImportProgressEta").textContent=eta;
+    }
     async function scanTvDriveFolder(rootId){
       const preview=document.getElementById("tvImportPreview");
       preview.style.display="none";
+      const startedAt=Date.now();
       let foldersScanned=0;
+      let foldersToScan=1;
       const rows=[];
       const folderMime="application/vnd.google-apps.folder";
+      updateTvScanProgress(foldersScanned,foldersToScan,startedAt);
       const scanFolder=async(folderId,label)=>{
         const children=await listTvDriveChildren(folderId);
         foldersScanned++;
+        const childFolders=children.filter(f=>f.mimeType===folderMime);
+        foldersToScan+=childFolders.length;
+        updateTvScanProgress(foldersScanned,foldersToScan,startedAt);
         setTvImportStatus("Scanning… "+foldersScanned+" folders checked. Currently: "+label);
         return children;
       };
@@ -6774,7 +6807,7 @@ function dehydrateMovie(m){
         rows.push({fileId:file.id,fileName:file.name,resourceKey:file.resourceKey||"",webViewLink:file.webViewLink||"",showName,seasonNumber:(season!==null&&season!==undefined)?Number(season):(parsed.season||1),episodeNumber:parsed.episode,episodeTitle:parsed.title,duplicate:false});
       };
 
-      setTvImportStatus("Scanning streaming-service folders…");
+      setTvImportStatus("Discovering your streaming services and folders…");
       const rootChildren=await scanFolder(rootId,"Shows and Sitcoms");
       const rootFolders=rootChildren.filter(f=>f.mimeType===folderMime);
       if(!rootFolders.length)throw new Error("No streaming-service folders were found. Expected Shows and Sitcoms → Hulu / Apple TV / etc. → Show → Season.");
@@ -6814,6 +6847,13 @@ function dehydrateMovie(m){
       });
 
       if(!rows.length)throw new Error("No video files were found. Expected episode files inside each show's season folders.");
+      updateTvScanProgress(foldersScanned,Math.max(foldersScanned,foldersToScan),startedAt);
+      document.getElementById("tvImportProgressLabel").textContent="Scan complete";
+      document.getElementById("tvImportProgressPercent").textContent="100%";
+      document.getElementById("tvImportProgressFill").style.width="100%";
+      document.getElementById("tvImportProgressBar").setAttribute("aria-valuenow","100");
+      document.getElementById("tvImportProgressCount").textContent=foldersScanned+" folders checked";
+      document.getElementById("tvImportProgressEta").textContent="Finished";
       const existing=new Set();
       library.forEach(item=>{
         if(item.driveUrl){const info=extractDriveInfo(item.driveUrl);if(info.kind==="file")existing.add(info.id);}
