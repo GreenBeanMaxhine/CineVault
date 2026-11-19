@@ -6817,33 +6817,54 @@ function dehydrateMovie(m){
         return {service,children};
       });
 
-      const showEntries=[];
+      // A folder is only promoted to a show when its contents resemble a TV series.
+      // This avoids importing service artwork, downloads, extras, and miscellaneous folders.
+      const showCandidates=[];
+      let skippedFolders=0;
       for(const entry of serviceContents){
         for(const child of entry.children){
-          if(child.mimeType===folderMime)showEntries.push({show:child,serviceName:entry.service.name});
-          else addVideo(child,entry.service.name,1);
+          if(child.mimeType===folderMime)showCandidates.push({show:child,serviceName:entry.service.name});
+          else if(isTvVideoFile(child)&&parseTvEpisodeNumber(child.name,1).episode!==null)addVideo(child,entry.service.name,1);
         }
       }
-      if(!showEntries.length&&!rows.length)throw new Error("No show folders were found inside the streaming-service folders.");
+      if(!showCandidates.length&&!rows.length)throw new Error("No possible show folders were found inside the streaming-service folders.");
 
-      const showContents=await mapLimit(showEntries,6,async entry=>{
+      const inspectedCandidates=await mapLimit(showCandidates,6,async entry=>{
         const children=await scanFolder(entry.show.id,entry.show.name);
         return {...entry,children};
       });
 
+      const showContents=[];
       const seasonEntries=[];
-      for(const entry of showContents){
-        const seasonFolders=entry.children.filter(child=>child.mimeType===folderMime);
-        for(const file of entry.children)if(file.mimeType!==folderMime)addVideo(file,entry.show.name,1);
+      for(const entry of inspectedCandidates){
+        const childFolders=entry.children.filter(child=>child.mimeType===folderMime);
+        const seasonFolders=childFolders.filter(folder=>{
+          const name=String(folder.name||"").trim();
+          return parseTvSeasonNumber(name)!==null||/^\\d{1,2}$/.test(name);
+        });
+        const directEpisodes=entry.children.filter(file=>
+          file.mimeType!==folderMime&&isTvVideoFile(file)&&parseTvEpisodeNumber(file.name,1).episode!==null
+        );
+        if(!seasonFolders.length&&!directEpisodes.length){
+          skippedFolders++;
+          continue;
+        }
+        showContents.push(entry);
+        for(const file of directEpisodes)addVideo(file,entry.show.name,1);
         for(const seasonFolder of seasonFolders){
           const parsedSeason=parseTvSeasonNumber(seasonFolder.name);
-          seasonEntries.push({folder:seasonFolder,showName:entry.show.name,seasonNumber:parsedSeason===null?1:parsedSeason});
+          seasonEntries.push({folder:seasonFolder,showName:entry.show.name,seasonNumber:parsedSeason===null?Number(seasonFolder.name):parsedSeason});
         }
       }
 
+      if(!showContents.length&&!rows.length)throw new Error("No likely TV shows were detected. CineVault looks for Season folders or numbered episode files such as S01E01.");
+      setTvImportStatus("Found "+showContents.length+" likely shows; skipped "+skippedFolders+" unrelated folders. Scanning seasons…");
+
       await mapLimit(seasonEntries,6,async entry=>{
         const children=await scanFolder(entry.folder.id,entry.showName+" — "+entry.folder.name);
-        for(const file of children)if(file.mimeType!==folderMime)addVideo(file,entry.showName,entry.seasonNumber);
+        for(const file of children){
+          if(file.mimeType!==folderMime&&isTvVideoFile(file)&&parseTvEpisodeNumber(file.name,entry.seasonNumber).episode!==null)addVideo(file,entry.showName,entry.seasonNumber);
+        }
       });
 
       if(!rows.length)throw new Error("No video files were found. Expected episode files inside each show's season folders.");
