@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>CineVault — Private Media Library</title>
+  <meta name="theme-color" content="#08090d" />
+  <meta name="color-scheme" content="dark light" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop stop-color='%23ff4b55'/%3E%3Cstop offset='1' stop-color='%239b0712'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='15' fill='%230d1018'/%3E%3Crect x='3' y='3' width='58' height='58' rx='13' fill='url(%23g)'/%3E%3Cpath d='M41 19a18 18 0 1 0 0 26l-6-6a10 10 0 1 1 0-14z' fill='white'/%3E%3Cpath d='M43 19h5v26h-5z' fill='white'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="styles.css" />
+
+
+
+
+</head>
+<body class="home-mode cv-booting">
+  <!-- iOS Frosted Navigation Bar with Dynamic Island Status Capsule -->
+  <header class="ios-navbar" id="mainHeader">
+    <div class="ios-navbar-inner">
+      <div class="ios-nav-left">
+        <div class="ios-brand-chip" onclick="switchNavTab('home')" title="Back to CineVault Home">
+          <div class="ios-app-icon">CV</div>
+          <span class="ios-inline-title">CineVault</span>
+        </div>
+      </div>
+
+      <!-- Dynamic Island Live Library Capsule -->
+      <div class="dynamic-island" id="posterStatus" title="Library sync status: green = ready, amber = syncing, red = needs attention">
+        <span class="dot" id="statusDot"></span>
+        <span id="statusText">Syncing posters...</span>
+      </div>
+
+      <div class="ios-nav-right">
+        <button class="btn btn-circle-icon" id="themeToggleBtn" onclick="toggleTheme()" title="Switch Appearance">☀︎</button>
+
+        <button class="btn btn-ios-blue" onclick="openAddModal()">
+          <span style="font-size:1.05rem; line-height:1;">+</span> Add
+        </button>
+
+        <div class="dropdown-wrap">
+          <button class="btn btn-circle-icon" onclick="toggleToolsMenu(event)" title="Vault Tools">•••</button>
+          <div class="dropdown-menu" id="toolsDropdown">
+            <div class="dropdown-section-label">Diagnostics</div>
+            <button class="dropdown-item" id="scanLinksBtn" onclick="closeToolsMenu(); scanAllDriveLinks()"><span>Scan Drive Links</span><span>🔍</span></button>
+            <button class="dropdown-item" onclick="closeToolsMenu(); filterToMissingPosters()"><span>Missing Posters</span><span>🖼</span></button>
+            <button class="dropdown-item" onclick="closeToolsMenu(); shuffleSpotlight()"><span>Shuffle Spotlight</span><span>🎲</span></button>
+            <div class="dropdown-divider"></div>
+            <div class="dropdown-section-label">Artwork Engine</div>
+            <button class="dropdown-item" onclick="closeToolsMenu(); configureTmdbApiKey()"><span>TMDB API Setup</span><span>🎬</span></button>
+            <button class="dropdown-item" onclick="closeToolsMenu(); retryMissingPosters()"><span>Fetch Missing Posters</span><span>✨</span></button>
+            <button class="dropdown-item" onclick="closeToolsMenu(); refreshAllPosters()"><span>Refresh All Posters</span><span>↻</span></button>
+            <div class="dropdown-divider"></div>
+            <div class="dropdown-section-label">Library &amp; Layout</div>
+            <button class="dropdown-item" onclick="closeToolsMenu(); toggleCompactContainer()"><span>Toggle Reading Width</span><span>↔</span></button>
+            <button class="dropdown-item" onclick="closeToolsMenu(); exportSelfContainedHtml()"><span>Save Self-Contained HTML</span><span>💾</span></button>
+            <button class="dropdown-item" onclick="closeToolsMenu(); exportUpdatedJson()"><span>Export JSON</span><span>↓</span></button>
+            <button class="dropdown-item" onclick="closeToolsMenu(); document.getElementById('importJsonInput').click()"><span>Import JSON</span><span>↑</span></button>
+            <div class="dropdown-divider"></div>
+            <div class="dropdown-section-label">Credits</div>
+            <div style="padding:8px 12px;font-size:11px;line-height:1.5;opacity:.78;white-space:normal;max-width:260px;">
+              This product uses the TMDB API but is not endorsed or certified by TMDB.
+              <a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline;">TMDB</a>
+            </div>
+          </div>
+        </div>
+        <input type="file" id="importJsonInput" accept=".json,application/json" style="display:none" onchange="handleImportJson(event)" />
+      </div>
+    </div>
+  </header>
+
+  <!-- iOS Large Title & Integrated Search / Segmented View Header -->
+  <section class="ios-large-header">
+    <div class="ios-large-title-row">
+      <div>
+        <h1 class="ios-large-title" id="iosPageHeading">CineVault</h1>
+        <div class="ios-large-subtitle" id="iosPageSubheading">Personal Cloud Cinema &amp; Series Vault</div>
+      </div>
+
+      <div class="ios-search-and-segment">
+        <div class="ios-segmented" role="group" aria-label="View Switcher">
+          <button class="ios-seg-btn active" id="viewRowsBtn" onclick="setViewMode('rows')">Shelves</button>
+          <button class="ios-seg-btn" id="viewGridBtn" onclick="setViewMode('grid')">Grid</button>
+          <button class="ios-seg-btn" id="viewListBtn" onclick="setViewMode('list')">List</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Content Stage -->
+  <main id="mainStage">
+    <section class="search-page-panel" id="searchPagePanel" aria-label="Search your vault">
+      <div class="ios-search-bar search-page-bar">
+        <span class="ios-search-icon">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        </span>
+        <input type="text" id="searchInput" placeholder="Search movies, shows, years..." oninput="handleSearchInput()" autocomplete="off" />
+        <span class="search-kbd-hint" id="searchKbdHint">/</span>
+        <button class="search-clear-btn" id="searchClearBtn" onclick="clearSearchInput()" title="Clear search">&times;</button>
+      </div>
+    </section>
+    <!-- iOS App Store / Apple TV+ Editorial Hero Card -->
+    <section class="ios-hero-card" id="spotlight"></section>
+
+    <!-- Flagged Broken Links Alert Banner -->
+    <div class="scan-banner" id="scanBanner">
+      <div class="scan-banner-text">
+        <span>⚠️</span>
+        <span id="scanBannerMsg">0 titles failed the Drive link check (deleted or restricted).</span>
+      </div>
+      <div class="scan-banner-actions">
+        <button class="btn" onclick="filterToFlagged()">Show Flagged</button>
+        <button class="btn btn-danger" id="bulkRemoveFlaggedBtn" onclick="promptBulkRemoveFlagged()">Remove All Flagged</button>
+        <button class="btn" onclick="clearLinkFlags()">Dismiss</button>
+      </div>
+    </div>
+
+    <!-- iOS Grouped Filter & Genre Pills Dock -->
+    <section class="ios-filter-group">
+      <div class="genre-bar" id="genreBar"></div>
+
+      <div class="filter-controls-row">
+        <div class="filter-selects">
+          <select id="typeFilter" onchange="onFilterControlChange()">
+            <option value="all" id="allTypesOption">All Types (974)</option>
+            <option value="movie">Movies Only</option>
+            <option value="show">Shows &amp; Specials</option>
+          </select>
+          <select id="statusFilter" onchange="onFilterControlChange()">
+            <option value="all">All Watch Status</option>
+            <option value="unwatched">Unwatched</option>
+            <option value="watching">Watching</option>
+            <option value="watched">Watched</option>
+            <option value="flagged" id="flaggedFilterOption">⚠ Flagged Links (0)</option>
+          </select>
+          <select id="qualityFilter" onchange="onFilterControlChange()">
+            <option value="all">All Qualities</option>
+            <option value="4K">4K</option>
+            <option value="1080p">1080p</option>
+            <option value="HD">HD</option>
+            <option value="720p">720p</option>
+            <option value="480p">480p</option>
+            <option value="360p">360p</option>
+            <option value="240p">240p</option>
+            <option value="CAM">CAM</option>
+          </select>
+          <select id="posterFilter" onchange="onFilterControlChange()">
+            <option value="all">All Posters</option>
+            <option value="has-poster" id="hasPosterOption">✓ Has Poster (0)</option>
+            <option value="missing-poster" id="missingPosterOption">⚠ Missing Poster (0)</option>
+          </select>
+          <select id="sortSelect" onchange="onFilterControlChange()">
+            <option value="default">Sort: Vault Order</option>
+            <option value="title-asc">Title: A → Z</option>
+            <option value="title-desc">Title: Z → A</option>
+            <option value="year-desc">Year: Newest First</option>
+            <option value="year-asc">Year: Oldest First</option>
+          </select>
+          <button class="btn btn-ios-tinted" id="resetFiltersBtn" style="display:none;" onclick="resetAllFilters()">Reset</button>
+        </div>
+
+        <div class="stats-row">
+          <span id="resultCount">974 titles in vault</span>
+          <span class="stat-pill-watched" id="watchedCount">0 watched</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Horizontal Shelves (Swimlanes) -->
+    <div class="swimlanes-wrap" id="swimlanesContainer"></div>
+
+    <!-- Full Catalog Poster Grid -->
+    <div class="grid" id="movieGrid" style="display:none;"></div>
+
+    <!-- iOS Inset Grouped List View -->
+    <div class="ios-grouped-list" id="movieList" style="display:none;"></div>
+  </main>
+
+  <!-- Floating iOS Bottom Tab Bar (UITabBar) -->
+  <nav class="ios-tabbar-dock" aria-label="Primary Tabs">
+    <button class="nav-tab active" data-tab="home" onclick="switchNavTab('home')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1V9.5z"/></svg>
+      <span>Home</span>
+    </button>
+    <button class="nav-tab" data-tab="movies" onclick="switchNavTab('movies')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="3"/><line x1="7" y1="3" x2="7" y2="21"/><line x1="17" y1="3" x2="17" y2="21"/><line x1="2" y1="9" x2="7" y2="9"/><line x1="2" y1="15" x2="7" y2="15"/><line x1="17" y1="9" x2="22" y2="9"/><line x1="17" y1="15" x2="22" y2="15"/></svg>
+      <span>Movies</span>
+    </button>
+    <button class="nav-tab" data-tab="shows" onclick="switchNavTab('shows')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="13" rx="3"/><polyline points="17 2 12 7 7 2"/></svg>
+      <span>Shows</span>
+    </button>
+    <button class="nav-tab" data-tab="search" onclick="switchNavTab('search')" aria-label="Search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.8" cy="10.8" r="7.2"/><path d="m16.2 16.2 5 5"/></svg>
+      <span>Search</span>
+    </button>
+    <button class="nav-tab" data-tab="watchlist" onclick="switchNavTab('watchlist')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+      <span>Watchlist</span>
+    </button>
+    <button class="nav-tab" data-tab="all" onclick="switchNavTab('all')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      <span>Library</span>
+    </button>
+  </nav>
+
+  <!-- In-Site iOS Cinema Player Modal -->
+  <div class="modal-backdrop player-backdrop" id="playerBackdrop" onclick="closePlayerOnBackdrop(event)">
+    <div class="player-shell" id="playerShell">
+      <div class="player-topbar">
+        <div class="player-info">
+          <img class="player-mini-poster" id="playerPoster" src="" alt="" onerror="this.style.display='none'" />
+          <div class="player-title-wrap">
+            <h3 class="player-title" id="playerTitle">Movie Title</h3>
+            <div class="player-sub" id="playerSub">Year • Genre • Quality</div>
+          </div>
+        </div>
+        <div class="player-controls">
+          <select class="player-status-select" id="playerStatusSelect" onchange="updateStatusFromPlayer(this.value)">
+            <option value="unwatched">Unwatched</option>
+            <option value="watching">Watching</option>
+            <option value="watched">Watched</option>
+          </select>
+          <button class="btn" onclick="togglePlayerEditBar()">Edit Link</button>
+          <button class="btn" onclick="togglePlayerExpand()">Wide</button>
+          <a class="btn" id="playerFallbackLink" href="#" target="_blank" rel="noopener noreferrer">Drive ↗</a>
+          <button class="btn btn-danger" onclick="deleteActivePlayerItem()">Delete</button>
+          <button class="btn btn-gold" onclick="closePlayer()">Done</button>
+        </div>
+      </div>
+
+      <!-- Inline Replace Drive Link Bar -->
+      <div class="player-edit-bar" id="playerEditBar">
+        <input type="text" id="playerDriveInput" placeholder="Paste replacement Google Drive URL or File ID..." />
+        <button class="btn btn-gold" onclick="savePlayerDriveUrl()">Save &amp; Reload</button>
+        <button class="btn" onclick="togglePlayerEditBar()">Cancel</button>
+      </div>
+
+      <div class="player-frame-wrap">
+        <iframe
+          id="playerIframe"
+          src=""
+          allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+          allowfullscreen
+        ></iframe>
+      </div>
+      <div class="player-hint">
+        <span>CineVault Theater • Press <strong>Esc</strong> to close</span>
+        <span>Stream unavailable? Tap <strong>Edit Link</strong> to replace the Drive URL.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- iOS Add Title Sheet -->
+  <div class="modal-backdrop" id="addBackdrop" onclick="closeAddOnBackdrop(event)">
+    <div class="modal modal-form">
+      <div class="ios-sheet-grabber"></div>
+      <div class="modal-header">
+        <h2 class="modal-title">New Title</h2>
+        <button class="close-btn" onclick="closeAddModal()" aria-label="Close">&times;</button>
+      </div>
+      <form id="addForm" onsubmit="handleAddSubmit(event)">
+        <div class="form-grid">
+          <div class="form-full">
+            <label class="form-label" for="addTitle">Title *</label>
+            <input type="text" id="addTitle" required placeholder="e.g. Spider-Man: No Way Home" />
+          </div>
+
+          <div>
+            <label class="form-label" for="addType">Category</label>
+            <select id="addType">
+              <option value="movie">Movie</option>
+              <option value="show">Show / Special</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="form-label" for="addYear">Release Year *</label>
+            <input type="number" id="addYear" required min="1900" max="2035" value="2024" />
+          </div>
+
+          <div>
+            <label class="form-label" for="addGenre">Genre</label>
+            <select id="addGenre">
+              <option value="Action">Action</option>
+              <option value="Sci-Fi">Sci-Fi</option>
+              <option value="Animation">Animation</option>
+              <option value="Comedy">Comedy</option>
+              <option value="Drama">Drama</option>
+              <option value="Fantasy">Fantasy</option>
+              <option value="Horror">Horror</option>
+              <option value="Romance">Romance</option>
+              <option value="Thriller">Thriller</option>
+              <option value="Documentary">Documentary</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="form-label" for="addQuality">Resolution</label>
+            <select id="addQuality">
+              <option value="HD" selected>HD</option>
+              <option value="1080p">1080p</option>
+              <option value="4K">4K</option>
+              <option value="720p">720p</option>
+              <option value="CAM">CAM</option>
+            </select>
+          </div>
+
+          <div class="form-full">
+            <label class="form-label" for="addDriveUrl">Google Drive URL *</label>
+            <input type="text" id="addDriveUrl" required placeholder="https://drive.google.com/file/d/.../view or folder link" />
+            <div class="form-hint">Paste any Google Drive file or folder sharing URL — plays directly in CineVault Theater.</div>
+          </div>
+
+          <div>
+            <label class="form-label" for="addStatus">Watch Status</label>
+            <select id="addStatus">
+              <option value="unwatched" selected>Unwatched</option>
+              <option value="watching">Watching</option>
+              <option value="watched">Watched</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="form-label" for="addNotes">Collection / Notes</label>
+            <input type="text" id="addNotes" placeholder="e.g. MCU, Season 1, Director's Cut" />
+          </div>
+
+          <div class="form-full">
+            <label class="form-label" for="addDescription">Synopsis</label>
+            <textarea id="addDescription" rows="2" placeholder="Short 1–2 sentence overview..."></textarea>
+          </div>
+
+          <div class="form-full">
+            <label class="form-label" for="addPoster">Custom Poster URL</label>
+            <input type="url" id="addPoster" placeholder="Leave blank to auto-fetch artwork" />
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <div class="modal-footer-left">
+            <button type="submit" class="btn btn-ios-blue">Add to Vault</button>
+            <button type="button" class="btn" onclick="closeAddModal()">Cancel</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- iOS Alert Confirmation Dialog -->
+  <div class="modal-backdrop" id="deleteBackdrop" onclick="closeDeleteOnBackdrop(event)">
+    <div class="modal modal-sm">
+      <h2 class="modal-title" id="deleteModalTitle" style="font-size:1.12rem; margin-bottom:8px;">Delete Title?</h2>
+      <p id="deleteConfirmText" style="color:var(--text-secondary); font-size:0.86rem; line-height:1.45; margin:0 0 20px;">
+        Are you sure you want to remove this title from your vault?
+      </p>
+      <div style="display:flex; gap:10px; justify-content:center;">
+        <button class="btn" style="flex:1;" onclick="closeDeleteModal()">Cancel</button>
+        <button class="btn btn-danger" style="flex:1;" id="confirmDeleteBtn" onclick="executeDelete()">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- iOS Title Inspector Sheet -->
+  <div class="modal-backdrop" id="modalBackdrop" onclick="closeModalOnBackdrop(event)">
+    <div class="modal" id="modalContent"></div>
+  </div>
+
+  <!-- Dynamic Island Notification Pill -->
+  <div class="toast" id="toast">
+    <span id="toastText">Removed from library</span>
+    <button class="btn btn-ios-blue" id="toastUndoBtn" style="padding:4px 11px; font-size:0.76rem; display:none;" onclick="undoLastDelete()">Undo</button>
+  </div>
+
+    <script src="data.js"></script>
+  <script src="app.js"></script>
+
+  <script src="features.js"></script>
+</body>
+</html>
